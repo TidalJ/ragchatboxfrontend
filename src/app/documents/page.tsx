@@ -45,21 +45,59 @@ export default function DocumentsPage() {
     }
   };
 
+  // This useEffect will run when `isUploading` becomes true, and will poll for updates.
+  useEffect(() => {
+    if (!isUploading) {
+      return;
+    }
+
+    const pollingInterval = setInterval(async () => {
+      const freshDocuments = await getDocuments();
+      setDocuments(freshDocuments);
+
+      // If there are no more documents in a "processing" state, stop polling.
+      const isStillProcessing = freshDocuments.some(doc => !doc.processed);
+      if (!isStillProcessing) {
+        setIsUploading(false); // This will stop the useEffect from running the interval again.
+      }
+    }, 5000); // Poll every 5 seconds.
+
+    // Cleanup function to clear the interval when the component unmounts or `isUploading` changes.
+    return () => clearInterval(pollingInterval);
+  }, [isUploading, setDocuments]);
+
+
   const handleUpload = async () => {
     if (!selectedFile) {
       alert("Please select a file to upload.");
       return;
     }
+
+    // Create a temporary representation of the document for immediate UI feedback.
+    const tempDoc = {
+      s3_key: `temp-id-${Date.now()}`,
+      filename: selectedFile.name,
+      processed: false,
+      size: selectedFile.size,
+      last_modified: new Date().toISOString(),
+    };
+    setDocuments([tempDoc, ...documents]);
+
+    // Set isUploading to true to kick off the polling useEffect.
     setIsUploading(true);
+
     try {
+      // We call uploadDocument but expect it to time out.
       await uploadDocument(selectedFile);
-      setSelectedFile(null); // Reset file input
-      await fetchDocuments(); // Refresh the document list from the store
     } catch (error) {
-      const err = error as Error;
-      alert(`Failed to upload document: ${err.message || 'Please try again.'}`);
+      // The timeout error is expected. We log it and let the polling handle the rest.
+      console.warn(
+        "Upload request may have timed out, which is expected. " +
+        "Polling will continue in the background to check for the final status."
+      );
     } finally {
-      setIsUploading(false);
+      // Reset the file input regardless of the timeout.
+      setSelectedFile(null);
     }
   };
 
@@ -71,7 +109,23 @@ export default function DocumentsPage() {
             <CardTitle>Upload a new document</CardTitle>
           </CardHeader>
           <CardContent className="flex gap-4">
-            <Input type="file" onChange={handleFileChange} disabled={isUploading} />
+            <div className="flex items-center gap-2">
+              <input
+                type="file"
+                id="file-upload"
+                className="hidden"
+                onChange={handleFileChange}
+                disabled={isUploading}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isUploading}
+                onClick={() => document.getElementById('file-upload')?.click()}
+              >
+                {selectedFile ? selectedFile.name : 'Select File'}
+              </Button>
+            </div>
             <Button onClick={handleUpload} disabled={isUploading || !selectedFile}>
               {isUploading ? "Uploading..." : "Upload"}
             </Button>
@@ -95,9 +149,9 @@ export default function DocumentsPage() {
                 <TableBody>
                   {documents.length > 0 ? (
                     documents.map((doc, index) => (
-                      <TableRow key={doc.id || index}>
+                      <TableRow key={doc.s3_key || index}>
                         <TableCell className="font-medium">{doc.filename}</TableCell>
-                        <TableCell>{doc.status}</TableCell>
+                        <TableCell>{doc.processed ? "Processed" : "Processing..."}</TableCell>
                       </TableRow>
                     ))
                   ) : (

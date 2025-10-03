@@ -1,9 +1,11 @@
 const API_BASE_URL = "https://s3gkl2w4tbuapg4gyuukdls4dy0pbqta.lambda-url.ap-southeast-2.on.aws";
 
 export interface Document {
-  id: string;
+  s3_key: string;
   filename: string;
-  status: string;
+  processed: boolean;
+  size: number;
+  last_modified: string;
 }
 
 const handleApiError = async (response: Response) => {
@@ -21,14 +23,14 @@ const handleApiError = async (response: Response) => {
   return errorMessage;
 };
 
-export async function generateResponse(prompt: string): Promise<string> {
+export async function generateResponse(prompt: string, useRag: boolean = true): Promise<string> {
   if (!prompt.trim()) {
     throw new Error("Prompt cannot be empty.");
   }
   try {
     const params = new URLSearchParams({
       prompt: prompt,
-      use_rag: 'true',
+      use_rag: useRag.toString(),
       x_user_credits: 'secretkey'
     });
 
@@ -76,11 +78,15 @@ export async function getDocuments(): Promise<Document[]> {
 export async function uploadDocument(file: File): Promise<Document> {
   const formData = new FormData();
   formData.append("file", file);
-
+    // Removed - now sent via header instead
+            
   try {
-    const response = await fetch(`${API_BASE_URL}/upload`, {
+    const params = new URLSearchParams({
+      x_user_credits: 'secretkey'
+    });
+    const response = await fetch(`${API_BASE_URL}/upload?${params.toString()}`, {
       method: "POST",
-      body: formData,
+            body: formData,
     });
 
     if (!response.ok) {
